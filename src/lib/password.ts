@@ -41,6 +41,13 @@ export async function hashPassword(password: string): Promise<string> {
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
   const [saltHex, keyHex] = hash.split(':')
   const salt = fromHex(saltHex)
-  const derived = await deriveKey(password, salt)
-  return toHex(derived) === keyHex
+  const derived = new Uint8Array(await deriveKey(password, salt))
+  const expected = fromHex(keyHex)
+  if (derived.length !== expected.length) return false
+  // Constant-time comparison to prevent timing attacks
+  let diff = 0
+  for (let i = 0; i < derived.length; i++) {
+    diff |= derived[i]! ^ expected[i]!
+  }
+  return diff === 0
 }

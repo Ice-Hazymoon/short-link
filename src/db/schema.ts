@@ -11,7 +11,7 @@ export const links = sqliteTable('links', {
   slug: text('slug').notNull(),
   url: text('url').notNull(),
   domainId: integer('domain_id').notNull().references(() => domains.id),
-  password: text('password'), // bcrypt hash, null = no password
+  password: text('password'), // PBKDF2 hash, null = no password
   expiresAt: integer('expires_at', { mode: 'timestamp' }),
   maxClicks: integer('max_clicks'),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),

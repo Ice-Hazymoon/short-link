@@ -8,7 +8,7 @@ export const apiKeyAuth = createMiddleware<AppEnv>(async (c, next) => {
     return next()
   }
 
-  const provided = c.req.header('x-api-key') || c.req.query('api_key')
+  const provided = c.req.header('x-api-key')
   if (!provided || provided !== apiKey) {
     return c.json({ error: 'Unauthorized' }, 401)
   }

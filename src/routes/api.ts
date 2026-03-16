@@ -75,14 +75,16 @@ api.get('/links', async (c) => {
 
   const result = await query
 
-  const links = result.map(r => ({
-    ...r.link,
-    domain: r.domain.domain,
-    shortUrl: `https://${r.domain.domain}/${r.link.slug}`,
-    clickCount: r.clickCount,
-    hasPassword: !!r.link.password,
-    password: undefined, // never expose password hash
-  }))
+  const links = result.map(r => {
+    const { password: _, ...link } = r.link
+    return {
+      ...link,
+      domain: r.domain.domain,
+      shortUrl: `https://${r.domain.domain}/${r.link.slug}`,
+      clickCount: r.clickCount,
+      hasPassword: !!r.link.password,
+    }
+  })
 
   return c.json({ links, page, limit })
 })
@@ -107,6 +109,11 @@ api.post('/links', async (c) => {
     return c.json({ error: 'Invalid URL' }, 400)
   }
 
+  // Validate custom slug format
+  if (body.slug && !/^[a-zA-Z0-9_-]+$/.test(body.slug)) {
+    return c.json({ error: 'Slug can only contain letters, numbers, hyphens, and underscores' }, 400)
+  }
+
   const db = createDb(c.env.DB)
 
   // Verify domain exists
@@ -129,18 +136,18 @@ api.post('/links', async (c) => {
     domainId: body.domainId,
     password: passwordHash,
     expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
-    maxClicks: body.maxClicks || null,
+    maxClicks: body.maxClicks ?? null,
   }).returning()
 
   // Invalidate any cached version
   await c.env.CACHE.delete(`link:${domain[0].domain}:${slug}`)
 
+  const { password: _, ...linkData } = link
   return c.json({
     link: {
-      ...link,
+      ...linkData,
       shortUrl: `https://${domain[0].domain}/${slug}`,
       hasPassword: !!passwordHash,
-      password: undefined,
     }
   }, 201)
 })
@@ -161,13 +168,13 @@ api.get('/links/:id', async (c) => {
   if (!result.length) return c.notFound()
 
   const r = result[0]
+  const { password: _, ...linkData } = r.link
   return c.json({
     link: {
-      ...r.link,
+      ...linkData,
       domain: r.domain.domain,
       shortUrl: `https://${r.domain.domain}/${r.link.slug}`,
       hasPassword: !!r.link.password,
-      password: undefined,
     }
   })
 })
@@ -223,13 +230,13 @@ api.patch('/links/:id', async (c) => {
   await c.env.CACHE.delete(`link:${oldLink.domain.domain}:${oldLink.link.slug}`)
   if (body.slug) await c.env.CACHE.delete(`link:${oldLink.domain.domain}:${body.slug}`)
 
+  const { password: _, ...updatedData } = updated
   return c.json({
     link: {
-      ...updated,
+      ...updatedData,
       domain: oldLink.domain.domain,
       shortUrl: `https://${oldLink.domain.domain}/${updated.slug}`,
       hasPassword: !!updated.password,
-      password: undefined,
     }
   })
 })

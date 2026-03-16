@@ -163,6 +163,31 @@ describe('Links API', () => {
     expect(res.status).toBe(400)
   })
 
+  it('rejects slugs with special characters', async () => {
+    const res = await SELF.fetch('https://test.local/api/links', {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ url: 'https://google.com', domainId, slug: 'bad slug!' }),
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('does not expose password hash in responses', async () => {
+    const res = await SELF.fetch('https://test.local/api/links', {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ url: 'https://google.com', domainId, password: 'secret' }),
+    })
+    const data = await res.json() as any
+    expect(data.link.password).toBeUndefined()
+    expect(data.link.hasPassword).toBe(true)
+
+    // Also check list endpoint
+    const listRes = await SELF.fetch('https://test.local/api/links', { headers: HEADERS })
+    const listData = await listRes.json() as any
+    expect(listData.links[0].password).toBeUndefined()
+  })
+
   it('lists links with click count', async () => {
     await SELF.fetch('https://test.local/api/links', {
       method: 'POST',

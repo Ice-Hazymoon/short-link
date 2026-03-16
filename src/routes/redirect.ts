@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { eq, and, count } from 'drizzle-orm'
 import { createDb, schema } from '../db'
 import { verifyPassword } from '../lib/password'
@@ -7,11 +8,9 @@ import type { AppEnv } from '../types'
 
 const app = new Hono<AppEnv>()
 
-function getHost(c: any): string {
-  // Try Host header first, fall back to URL hostname
+function getHost(c: Context<AppEnv>): string {
   const host = c.req.header('host')
-  if (host) return host.split(':')[0]
-  // In Workers, the request URL contains the actual hostname
+  if (host) return host.split(':')[0]!
   try {
     return new URL(c.req.url).hostname
   } catch {
@@ -19,10 +18,8 @@ function getHost(c: any): string {
   }
 }
 
-// Password verification page (simple HTML form)
-app.get('/:slug/password', async (c) => {
-  const slug = c.req.param('slug')
-  return c.html(`<!DOCTYPE html>
+function passwordPage(slug: string, error?: string): string {
+  return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Password Required</title>
 <style>
@@ -37,11 +34,16 @@ app.get('/:slug/password', async (c) => {
 <body><div class="card">
   <h2>Password Required</h2>
   <form method="POST" action="/${slug}/password">
-    <div id="error" class="error"></div>
+    ${error ? `<div class="error">${error}</div>` : ''}
     <input type="password" name="password" placeholder="Enter password" required autofocus>
     <button type="submit">Continue</button>
   </form>
-</div></body></html>`)
+</div></body></html>`
+}
+
+// Password verification page
+app.get('/:slug/password', async (c) => {
+  return c.html(passwordPage(c.req.param('slug')))
 })
 
 // Password verification POST
@@ -66,30 +68,11 @@ app.post('/:slug/password', async (c) => {
   const link = result[0].links
   const valid = await verifyPassword(password, link.password!)
   if (!valid) {
-    return c.html(`<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Password Required</title>
-<style>
-  body{font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f5f5f5}
-  .card{background:#fff;padding:2rem;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.1);max-width:400px;width:100%}
-  h2{margin:0 0 1rem}
-  input{width:100%;padding:.75rem;border:1px solid #ddd;border-radius:8px;font-size:1rem;box-sizing:border-box;margin-bottom:1rem}
-  button{width:100%;padding:.75rem;background:#000;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer}
-  button:hover{background:#333}
-  .error{color:#e00;font-size:.875rem;margin-bottom:.5rem}
-</style></head>
-<body><div class="card">
-  <h2>Password Required</h2>
-  <form method="POST" action="/${slug}/password">
-    <div class="error">Incorrect password</div>
-    <input type="password" name="password" placeholder="Enter password" required autofocus>
-    <button type="submit">Continue</button>
-  </form>
-</div></body></html>`, 401)
+    return c.html(passwordPage(slug, 'Incorrect password'), 401)
   }
 
   // Record click and redirect
-  await recordClick(c, link.id)
+  c.executionCtx.waitUntil(recordClick(c, link.id))
   return c.redirect(link.url, 302)
 })
 
@@ -130,7 +113,6 @@ app.get('/:slug', async (c) => {
       enabled: link.enabled,
     }
 
-    // Cache for 5 minutes
     try {
       await c.env.CACHE.put(cacheKey, JSON.stringify(linkData), { expirationTtl: 300 })
     } catch {
@@ -138,18 +120,15 @@ app.get('/:slug', async (c) => {
     }
   }
 
-  // Check if link is enabled
   if (!linkData.enabled) {
     return c.notFound()
   }
 
-  // Check expiration
   if (linkData.expiresAt && Date.now() > linkData.expiresAt) {
     return c.json({ error: 'Link has expired' }, 410)
   }
 
-  // Check max clicks
-  if (linkData.maxClicks) {
+  if (linkData.maxClicks != null) {
     const [result] = await db.select({ count: count() })
       .from(schema.clicks)
       .where(eq(schema.clicks.linkId, linkData.id))
@@ -158,21 +137,18 @@ app.get('/:slug', async (c) => {
     }
   }
 
-  // Password protected? Redirect to password page
   if (linkData.password) {
     return c.redirect(`/${slug}/password`, 302)
   }
 
-  // Record click asynchronously
   c.executionCtx.waitUntil(recordClick(c, linkData.id))
-
   return c.redirect(linkData.url, 302)
 })
 
-async function recordClick(c: any, linkId: number) {
+async function recordClick(c: Context<AppEnv>, linkId: number) {
   const db = createDb(c.env.DB)
   const ua = c.req.header('user-agent') || ''
-  const cf = (c.req.raw as any).cf || {}
+  const cf = (c.req.raw as Request & { cf?: IncomingRequestCfProperties }).cf || {}
 
   await db.insert(schema.clicks).values({
     linkId,
