@@ -20,8 +20,8 @@ beforeEach(async () => {
     headers: HEADERS,
     body: JSON.stringify({ domain: 'test.local' }),
   })
-  const data = await res.json() as any
-  domainId = data.domain.id
+  const body = await res.json() as any
+  domainId = body.data.id
 })
 
 describe('Password Protection', () => {
@@ -83,7 +83,7 @@ describe('Password Protection', () => {
       headers: HEADERS,
       body: JSON.stringify({ url: 'https://google.com', domainId, slug: 'pw', password: 'test123' }),
     })
-    const { link } = await createRes.json() as any
+    const { data: link } = await createRes.json() as any
 
     // Remove password
     const updateRes = await SELF.fetch(`https://test.local/api/links/${link.id}`, {
@@ -91,8 +91,8 @@ describe('Password Protection', () => {
       headers: HEADERS,
       body: JSON.stringify({ password: null }),
     })
-    const data = await updateRes.json() as any
-    expect(data.link.hasPassword).toBe(false)
+    const updateBody = await updateRes.json() as any
+    expect(updateBody.data.hasPassword).toBe(false)
 
     // Should now redirect directly
     const res = await SELF.fetch('https://test.local/pw', { redirect: 'manual' })
@@ -122,7 +122,7 @@ describe('Disabled Links', () => {
       headers: HEADERS,
       body: JSON.stringify({ url: 'https://google.com', domainId, slug: 'off' }),
     })
-    const { link } = await createRes.json() as any
+    const { data: link } = await createRes.json() as any
 
     // Disable the link
     await SELF.fetch(`https://test.local/api/links/${link.id}`, {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
-import { SELF, env } from 'cloudflare:test'
+import { SELF } from 'cloudflare:test'
 import { setupTestDb, cleanTestDb } from './setup'
 
 const HEADERS = {
@@ -32,8 +32,9 @@ describe('Domains API', () => {
       body: JSON.stringify({ domain: 'short.test' }),
     })
     expect(res.status).toBe(201)
-    const data = await res.json() as any
-    expect(data.domain.domain).toBe('short.test')
+    const body = await res.json() as any
+    expect(body.success).toBe(true)
+    expect(body.data.domain).toBe('short.test')
   })
 
   it('lists domains', async () => {
@@ -43,12 +44,11 @@ describe('Domains API', () => {
       body: JSON.stringify({ domain: 'short.test' }),
     })
 
-    const res = await SELF.fetch('https://test.local/api/domains', {
-      headers: HEADERS,
-    })
+    const res = await SELF.fetch('https://test.local/api/domains', { headers: HEADERS })
     expect(res.status).toBe(200)
-    const data = await res.json() as any
-    expect(data.domains).toHaveLength(1)
+    const body = await res.json() as any
+    expect(body.success).toBe(true)
+    expect(body.data).toHaveLength(1)
   })
 
   it('prevents duplicate domains', async () => {
@@ -57,13 +57,26 @@ describe('Domains API', () => {
       headers: HEADERS,
       body: JSON.stringify({ domain: 'short.test' }),
     })
-
     const res = await SELF.fetch('https://test.local/api/domains', {
       method: 'POST',
       headers: HEADERS,
       body: JSON.stringify({ domain: 'short.test' }),
     })
     expect(res.status).toBe(409)
+    const body = await res.json() as any
+    expect(body.success).toBe(false)
+  })
+
+  it('validates domain format', async () => {
+    const res = await SELF.fetch('https://test.local/api/domains', {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ domain: 'not a domain' }),
+    })
+    expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.success).toBe(false)
+    expect(body.error.issues).toBeDefined()
   })
 
   it('deletes a domain', async () => {
@@ -72,13 +85,15 @@ describe('Domains API', () => {
       headers: HEADERS,
       body: JSON.stringify({ domain: 'short.test' }),
     })
-    const { domain } = await createRes.json() as any
+    const { data: domain } = await createRes.json() as any
 
     const res = await SELF.fetch(`https://test.local/api/domains/${domain.id}`, {
       method: 'DELETE',
       headers: HEADERS,
     })
     expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.success).toBe(true)
   })
 
   it('prevents deleting domain with links', async () => {
@@ -87,7 +102,7 @@ describe('Domains API', () => {
       headers: HEADERS,
       body: JSON.stringify({ domain: 'short.test' }),
     })
-    const { domain } = await domainRes.json() as any
+    const { data: domain } = await domainRes.json() as any
 
     await SELF.fetch('https://test.local/api/links', {
       method: 'POST',
@@ -100,6 +115,8 @@ describe('Domains API', () => {
       headers: HEADERS,
     })
     expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.success).toBe(false)
   })
 })
 
@@ -112,8 +129,8 @@ describe('Links API', () => {
       headers: HEADERS,
       body: JSON.stringify({ domain: 'short.test' }),
     })
-    const data = await res.json() as any
-    domainId = data.domain.id
+    const body = await res.json() as any
+    domainId = body.data.id
   })
 
   it('creates a link with auto-generated slug', async () => {
@@ -123,10 +140,11 @@ describe('Links API', () => {
       body: JSON.stringify({ url: 'https://google.com', domainId }),
     })
     expect(res.status).toBe(201)
-    const data = await res.json() as any
-    expect(data.link.slug).toBeTruthy()
-    expect(data.link.url).toBe('https://google.com')
-    expect(data.link.shortUrl).toContain('short.test')
+    const body = await res.json() as any
+    expect(body.success).toBe(true)
+    expect(body.data.slug).toBeTruthy()
+    expect(body.data.url).toBe('https://google.com')
+    expect(body.data.shortUrl).toContain('short.test')
   })
 
   it('creates a link with custom slug', async () => {
@@ -136,8 +154,8 @@ describe('Links API', () => {
       body: JSON.stringify({ url: 'https://google.com', domainId, slug: 'my-link' }),
     })
     expect(res.status).toBe(201)
-    const data = await res.json() as any
-    expect(data.link.slug).toBe('my-link')
+    const body = await res.json() as any
+    expect(body.data.slug).toBe('my-link')
   })
 
   it('prevents duplicate slugs on same domain', async () => {
@@ -161,6 +179,9 @@ describe('Links API', () => {
       body: JSON.stringify({ url: 'not-a-url', domainId }),
     })
     expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.success).toBe(false)
+    expect(body.error.issues).toBeDefined()
   })
 
   it('rejects slugs with special characters', async () => {
@@ -172,36 +193,46 @@ describe('Links API', () => {
     expect(res.status).toBe(400)
   })
 
+  it('rejects missing domainId', async () => {
+    const res = await SELF.fetch('https://test.local/api/links', {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ url: 'https://google.com' }),
+    })
+    expect(res.status).toBe(400)
+  })
+
   it('does not expose password hash in responses', async () => {
     const res = await SELF.fetch('https://test.local/api/links', {
       method: 'POST',
       headers: HEADERS,
       body: JSON.stringify({ url: 'https://google.com', domainId, password: 'secret' }),
     })
-    const data = await res.json() as any
-    expect(data.link.password).toBeUndefined()
-    expect(data.link.hasPassword).toBe(true)
+    const body = await res.json() as any
+    expect(body.data.password).toBeUndefined()
+    expect(body.data.hasPassword).toBe(true)
 
-    // Also check list endpoint
     const listRes = await SELF.fetch('https://test.local/api/links', { headers: HEADERS })
-    const listData = await listRes.json() as any
-    expect(listData.links[0].password).toBeUndefined()
+    const listBody = await listRes.json() as any
+    expect(listBody.data[0].password).toBeUndefined()
   })
 
-  it('lists links with click count', async () => {
+  it('lists links with pagination', async () => {
     await SELF.fetch('https://test.local/api/links', {
       method: 'POST',
       headers: HEADERS,
       body: JSON.stringify({ url: 'https://google.com', domainId }),
     })
 
-    const res = await SELF.fetch('https://test.local/api/links', {
+    const res = await SELF.fetch('https://test.local/api/links?page=1&limit=10', {
       headers: HEADERS,
     })
     expect(res.status).toBe(200)
-    const data = await res.json() as any
-    expect(data.links).toHaveLength(1)
-    expect(data.links[0].clickCount).toBe(0)
+    const body = await res.json() as any
+    expect(body.success).toBe(true)
+    expect(body.data).toHaveLength(1)
+    expect(body.data[0].clickCount).toBe(0)
+    expect(body.pagination).toEqual({ page: 1, limit: 10 })
   })
 
   it('updates a link', async () => {
@@ -210,7 +241,7 @@ describe('Links API', () => {
       headers: HEADERS,
       body: JSON.stringify({ url: 'https://google.com', domainId }),
     })
-    const { link } = await createRes.json() as any
+    const { data: link } = await createRes.json() as any
 
     const res = await SELF.fetch(`https://test.local/api/links/${link.id}`, {
       method: 'PATCH',
@@ -218,8 +249,9 @@ describe('Links API', () => {
       body: JSON.stringify({ url: 'https://github.com' }),
     })
     expect(res.status).toBe(200)
-    const data = await res.json() as any
-    expect(data.link.url).toBe('https://github.com')
+    const body = await res.json() as any
+    expect(body.success).toBe(true)
+    expect(body.data.url).toBe('https://github.com')
   })
 
   it('deletes a link', async () => {
@@ -228,13 +260,15 @@ describe('Links API', () => {
       headers: HEADERS,
       body: JSON.stringify({ url: 'https://google.com', domainId }),
     })
-    const { link } = await createRes.json() as any
+    const { data: link } = await createRes.json() as any
 
     const res = await SELF.fetch(`https://test.local/api/links/${link.id}`, {
       method: 'DELETE',
       headers: HEADERS,
     })
     expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.success).toBe(true)
   })
 
   it('creates a password-protected link', async () => {
@@ -244,9 +278,9 @@ describe('Links API', () => {
       body: JSON.stringify({ url: 'https://google.com', domainId, password: 'secret123' }),
     })
     expect(res.status).toBe(201)
-    const data = await res.json() as any
-    expect(data.link.hasPassword).toBe(true)
-    expect(data.link.password).toBeUndefined()
+    const body = await res.json() as any
+    expect(body.data.hasPassword).toBe(true)
+    expect(body.data.password).toBeUndefined()
   })
 })
 
@@ -266,13 +300,12 @@ describe('Auth', () => {
 
 describe('Redirect', () => {
   it('redirects to target URL', async () => {
-    // Create domain matching the host we'll use for redirect
     const domainRes = await SELF.fetch('https://test.local/api/domains', {
       method: 'POST',
       headers: HEADERS,
       body: JSON.stringify({ domain: 'test.local' }),
     })
-    const { domain } = await domainRes.json() as any
+    const { data: domain } = await domainRes.json() as any
 
     await SELF.fetch('https://test.local/api/links', {
       method: 'POST',
@@ -280,7 +313,6 @@ describe('Redirect', () => {
       body: JSON.stringify({ url: 'https://google.com', domainId: domain.id, slug: 'go' }),
     })
 
-    // The Host header from SELF.fetch URL should be 'test.local'
     const res = await SELF.fetch('https://test.local/go', { redirect: 'manual' })
     expect(res.status).toBe(302)
     expect(res.headers.get('location')).toBe('https://google.com')
@@ -297,7 +329,7 @@ describe('Redirect', () => {
       headers: HEADERS,
       body: JSON.stringify({ domain: 'test.local' }),
     })
-    const { domain } = await domainRes.json() as any
+    const { data: domain } = await domainRes.json() as any
 
     await SELF.fetch('https://test.local/api/links', {
       method: 'POST',
@@ -316,7 +348,7 @@ describe('Redirect', () => {
       headers: HEADERS,
       body: JSON.stringify({ domain: 'test.local' }),
     })
-    const { domain } = await domainRes.json() as any
+    const { data: domain } = await domainRes.json() as any
 
     await SELF.fetch('https://test.local/api/links', {
       method: 'POST',
@@ -341,22 +373,23 @@ describe('Stats API', () => {
       headers: HEADERS,
       body: JSON.stringify({ domain: 'test.local' }),
     })
-    const { domain } = await domainRes.json() as any
+    const { data: domain } = await domainRes.json() as any
 
     const linkRes = await SELF.fetch('https://test.local/api/links', {
       method: 'POST',
       headers: HEADERS,
       body: JSON.stringify({ url: 'https://google.com', domainId: domain.id, slug: 'stats-test' }),
     })
-    const { link } = await linkRes.json() as any
+    const { data: link } = await linkRes.json() as any
 
     const res = await SELF.fetch(`https://test.local/api/links/${link.id}/stats`, {
       headers: HEADERS,
     })
     expect(res.status).toBe(200)
-    const data = await res.json() as any
-    expect(data.totalClicks).toBe(0)
-    expect(data.byCountry).toEqual([])
+    const body = await res.json() as any
+    expect(body.success).toBe(true)
+    expect(body.data.totalClicks).toBe(0)
+    expect(body.data.byCountry).toEqual([])
   })
 
   it('returns global stats', async () => {
@@ -364,8 +397,9 @@ describe('Stats API', () => {
       headers: HEADERS,
     })
     expect(res.status).toBe(200)
-    const data = await res.json() as any
-    expect(data.totalLinks).toBeDefined()
-    expect(data.totalClicks).toBeDefined()
+    const body = await res.json() as any
+    expect(body.success).toBe(true)
+    expect(body.data.totalLinks).toBeDefined()
+    expect(body.data.totalClicks).toBeDefined()
   })
 })

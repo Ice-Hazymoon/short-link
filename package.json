@@ -26,8 +26,10 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@hono/zod-validator": "^0.7.6",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.12.8",
-    "nanoid": "^5.1.7"
+    "nanoid": "^5.1.7",
+    "zod": "^4.3.6"
   }
 }
