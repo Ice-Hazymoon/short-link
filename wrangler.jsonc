@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "short-link",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-03-14",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "short-link-db",
+      "database_id": "<your-d1-database-id>",
+      "migrations_dir": "drizzle"
+    }
+  ],
+
+  "kv_namespaces": [
+    {
+      "binding": "CACHE",
+      "id": "<your-kv-namespace-id>"
+    }
+  ],
+
+  "analytics_engine_datasets": [
+    {
+      "binding": "ANALYTICS",
+      "dataset": "short_link_clicks"
+    }
+  ],
+
+  // Custom domain - requires the zone to be on Cloudflare
+  // Uncomment when DNS is proxied through Cloudflare:
+  // "routes": [
+  //   { "pattern": "your-domain.com/*", "zone_name": "your-domain.com" }
+  // ]
+
+  "workers_dev": true
+}
