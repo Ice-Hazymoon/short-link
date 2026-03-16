@@ -1,85 +1,90 @@
 # Short Link
 
-一个专业的短链接管理服务，基于 Cloudflare 全套技术栈构建。
+A professional URL shortener built on the full Cloudflare stack.
 
-## 技术栈
+## Tech Stack
 
-| 组件 | 技术 |
-|------|------|
-| 运行时 | Cloudflare Workers |
-| 框架 | Hono |
-| 数据库 | Cloudflare D1 (SQLite) |
+| Component | Technology |
+|-----------|-----------|
+| Runtime | Cloudflare Workers |
+| Framework | Hono |
+| Database | Cloudflare D1 (SQLite) |
 | ORM | Drizzle ORM |
-| 缓存 | Cloudflare KV |
-| 分析 | Analytics Engine (已配置) + D1 点击记录 |
-| 测试 | Vitest + @cloudflare/vitest-pool-workers |
-| 包管理 | bun |
+| Validation | Zod + @hono/zod-validator |
+| Cache | Cloudflare KV |
+| Analytics | D1 click tracking + Analytics Engine (configured) |
+| Testing | Vitest + @cloudflare/vitest-pool-workers |
+| Package Manager | bun |
 
-## 功能
+## Features
 
-- **短链接管理** — 创建、编辑、删除短链接，支持自定义 slug 或自动生成
-- **多域名支持** — 管理多个域名，按域名创建和隔离链接
-- **密码保护** — 为链接设置访问密码，使用 PBKDF2 加密存储
-- **链接过期** — 设置到期时间，过期后返回 410
-- **点击次数限制** — 设置最大点击次数
-- **启用/禁用** — 随时切换链接状态
-- **访问统计** — 按国家、设备、浏览器、操作系统、来源、时间维度分析
-- **全局概览** — 总链接数、总点击数、热门链接排行
-- **KV 缓存** — 重定向走缓存，5 分钟 TTL，毫秒级响应
-- **API Key 认证** — 管理接口使用密钥保护
+- **Link Management** — Create, edit, delete short links with custom or auto-generated slugs
+- **Multi-Domain** — Manage multiple domains, links are scoped per domain
+- **Password Protection** — Protect links with a password (PBKDF2 hashed, constant-time verification)
+- **Link Expiration** — Set expiry time, returns 410 after expiration
+- **Click Limits** — Set maximum number of clicks
+- **Enable/Disable** — Toggle link status without deleting
+- **Click Analytics** — Breakdown by country, device, browser, OS, referer, daily timeline
+- **Global Stats** — Total links, clicks, domains, top links ranking
+- **KV Cache** — Redirects served from cache with 5-minute TTL
+- **API Key Auth** — All management endpoints protected via `x-api-key` header
+- **Input Validation** — All API inputs validated with Zod schemas, structured error responses
 
-## 快速开始
-
-### 安装依赖
+## Quick Start
 
 ```bash
 bun install
+bun run dev       # Local dev server (localhost:8787)
+bun run test      # Run all tests (32 cases)
+bun run deploy    # Deploy to Cloudflare Workers
 ```
 
-### 本地开发
+## Commands
 
-```bash
-bun run dev
+| Command | Description |
+|---------|-------------|
+| `bun run dev` | Start local dev server |
+| `bun run test` | Run all tests |
+| `bun run test:watch` | Run tests in watch mode |
+| `bun run deploy` | Deploy to Cloudflare Workers |
+| `bun run db:generate` | Generate migration files after schema changes |
+| `bun run db:migrate` | Apply migrations to remote D1 |
+| `bun run db:migrate:local` | Apply migrations to local D1 |
+| `bun run types` | Generate TypeScript types from wrangler config |
+
+## API Reference
+
+All `/api/*` endpoints require the `x-api-key` header.
+
+### Response Format
+
+All responses follow a consistent structure:
+
+```jsonc
+// Success
+{ "success": true, "data": { ... } }
+
+// Success with pagination
+{ "success": true, "data": [...], "pagination": { "page": 1, "limit": 50 } }
+
+// Validation error (400)
+{ "success": false, "error": { "message": "Validation failed", "issues": [{ "path": "url", "message": "Invalid URL format" }] } }
+
+// Business error (404, 409, etc.)
+{ "success": false, "error": { "message": "Domain not found" } }
 ```
 
-### 运行测试
+---
 
-```bash
-bun run test
-```
+### Domains
 
-### 部署
-
-```bash
-bun run deploy
-```
-
-## 命令一览
-
-| 命令 | 说明 |
-|------|------|
-| `bun run dev` | 启动本地开发服务器 (localhost:8787) |
-| `bun run test` | 运行全部测试 |
-| `bun run test:watch` | 监听模式运行测试 |
-| `bun run deploy` | 部署到 Cloudflare Workers |
-| `bun run db:generate` | 修改 schema 后生成迁移文件 |
-| `bun run db:migrate` | 将迁移应用到远程 D1 |
-| `bun run db:migrate:local` | 将迁移应用到本地 D1 |
-| `bun run types` | 从 wrangler 配置生成 TypeScript 类型 |
-
-## API 文档
-
-所有 `/api/*` 端点需要 `x-api-key` 请求头认证。
-
-### 域名管理
-
-#### 获取域名列表
+#### List Domains
 
 ```
 GET /api/domains
 ```
 
-#### 添加域名
+#### Create Domain
 
 ```
 POST /api/domains
@@ -88,65 +93,67 @@ Content-Type: application/json
 { "domain": "example.com" }
 ```
 
-#### 删除域名
+Validation: must be a valid domain format (e.g. `sub.example.com`).
+
+#### Delete Domain
 
 ```
 DELETE /api/domains/:id
 ```
 
-> 域名下有链接时无法删除，需先删除关联链接。
+> Cannot delete a domain that has links — delete the links first.
 
 ---
 
-### 链接管理
+### Links
 
-#### 获取链接列表
+#### List Links
 
 ```
-GET /api/links?domain_id=1&page=1&limit=50
+GET /api/links?domainId=1&page=1&limit=50
 ```
 
-返回字段包含 `clickCount`、`shortUrl`、`hasPassword` 等聚合信息。
+Response includes `clickCount`, `shortUrl`, `hasPassword` for each link.
 
-#### 创建链接
+#### Create Link
 
 ```
 POST /api/links
 Content-Type: application/json
 
 {
-  "url": "https://github.com",
-  "domainId": 1,
-  "slug": "gh",           // 可选，不传则自动生成 7 位短码
-  "password": "secret",   // 可选，密码保护
-  "expiresAt": "2025-12-31T23:59:59Z",  // 可选，过期时间
-  "maxClicks": 1000       // 可选，最大点击次数
+  "url": "https://github.com",          // required, valid URL
+  "domainId": 1,                        // required, positive integer
+  "slug": "gh",                         // optional, auto-generated if omitted (a-zA-Z0-9_-)
+  "password": "secret",                 // optional, password protection
+  "expiresAt": "2025-12-31T23:59:59Z",  // optional, ISO 8601 datetime
+  "maxClicks": 1000                     // optional, non-negative integer
 }
 ```
 
-#### 获取单个链接
+#### Get Link
 
 ```
 GET /api/links/:id
 ```
 
-#### 更新链接
+#### Update Link
 
 ```
 PATCH /api/links/:id
 Content-Type: application/json
 
 {
-  "url": "https://new-url.com",   // 可选
-  "slug": "new-slug",             // 可选
-  "password": "new-pass",         // 可选，传 null 移除密码
-  "expiresAt": null,              // 可选，传 null 移除过期
-  "maxClicks": null,              // 可选
-  "enabled": false                // 可选
+  "url": "https://new-url.com",   // optional
+  "slug": "new-slug",             // optional
+  "password": "new-pass",         // optional, set to null to remove
+  "expiresAt": null,              // optional, set to null to remove
+  "maxClicks": null,              // optional
+  "enabled": false                // optional
 }
 ```
 
-#### 删除链接
+#### Delete Link
 
 ```
 DELETE /api/links/:id
@@ -154,52 +161,57 @@ DELETE /api/links/:id
 
 ---
 
-### 访问统计
+### Analytics
 
-#### 单链接统计
+#### Link Stats
 
 ```
 GET /api/links/:id/stats?days=30
 ```
 
-返回：
+Response:
 
 ```json
 {
-  "totalClicks": 142,
-  "days": 30,
-  "byCountry": [{ "country": "US", "count": 80 }, { "country": "JP", "count": 42 }],
-  "byDevice": [{ "device": "mobile", "count": 90 }, { "device": "desktop", "count": 52 }],
-  "byBrowser": [{ "browser": "Chrome", "count": 100 }],
-  "byOS": [{ "os": "iOS", "count": 60 }],
-  "byReferer": [{ "referer": "https://twitter.com", "count": 30 }],
-  "clicksOverTime": [{ "date": "2025-03-15", "count": 12 }]
+  "success": true,
+  "data": {
+    "totalClicks": 142,
+    "days": 30,
+    "byCountry": [{ "country": "US", "count": 80 }],
+    "byDevice": [{ "device": "mobile", "count": 90 }],
+    "byBrowser": [{ "browser": "Chrome", "count": 100 }],
+    "byOS": [{ "os": "iOS", "count": 60 }],
+    "byReferer": [{ "referer": "https://twitter.com", "count": 30 }],
+    "clicksOverTime": [{ "date": "2025-03-15", "count": 12 }]
+  }
 }
 ```
 
-#### 全局统计
+#### Global Stats
 
 ```
 GET /api/stats
 ```
 
-返回总链接数、总点击数、总域名数、热门链接 Top 10。
+Returns total links, clicks, domains, and top 10 links by click count.
 
 ---
 
-### 重定向
+### Redirects
 
 ```
 GET /:slug
 ```
 
-- 正常链接：302 重定向到目标 URL
-- 密码保护：302 到 `/:slug/password` 密码页面
-- 已过期：410 Gone
-- 已禁用：404 Not Found
-- 超出点击限制：410 Gone
+| Scenario | Response |
+|----------|----------|
+| Normal link | 302 redirect to target URL |
+| Password protected | 302 redirect to `/:slug/password` |
+| Expired | 410 Gone |
+| Disabled | 404 Not Found |
+| Max clicks reached | 410 Gone |
 
-密码验证：
+Password verification:
 
 ```
 POST /:slug/password
@@ -210,72 +222,69 @@ password=your-password
 
 ---
 
-### 健康检查
+### Health Check
 
 ```
 GET /health
 ```
 
-## 首次部署指南
+## Deployment Guide
 
-### 1. 创建 Cloudflare 资源
+### 1. Create Cloudflare Resources
 
 ```bash
-# 创建 D1 数据库
 wrangler d1 create short-link-db
-
-# 创建 KV 命名空间
 wrangler kv namespace create CACHE
 ```
 
-将返回的 `database_id` 和 KV `id` 填入 `wrangler.jsonc`。
+Copy the returned `database_id` and KV `id` into `wrangler.jsonc`.
 
-### 2. 应用数据库迁移
+### 2. Apply Database Migrations
 
 ```bash
 wrangler d1 migrations apply short-link-db --remote
 ```
 
-### 3. 设置 API 密钥
+### 3. Set API Key
 
 ```bash
 echo "your-secret-api-key" | wrangler secret put API_KEY
 ```
 
-### 4. 部署
+### 4. Deploy
 
 ```bash
 bun run deploy
 ```
 
-### 5. 绑定自定义域名
+### 5. Custom Domain (Optional)
 
-在 `wrangler.jsonc` 中取消 `routes` 注释并配置你的域名，确保该域名的 DNS 通过 Cloudflare 代理。
+Uncomment the `routes` section in `wrangler.jsonc` and configure your domain. The domain's DNS must be proxied through Cloudflare.
 
-## 项目结构
+## Project Structure
 
 ```
 src/
-├── index.ts              # 入口，路由挂载
-├── types.ts              # 类型定义 (Bindings, AppEnv)
+├── index.ts              # Entry point, route mounting
+├── types.ts              # Type definitions (Bindings, AppEnv)
 ├── db/
-│   ├── schema.ts         # Drizzle 数据库 schema (domains, links, clicks)
-│   └── index.ts          # 数据库初始化
+│   ├── schema.ts         # Drizzle schema (domains, links, clicks)
+│   └── index.ts          # Database initialization
 ├── lib/
-│   ├── slug.ts           # nanoid 短码生成
-│   ├── password.ts       # PBKDF2 密码哈希/验证
-│   └── ua.ts             # User-Agent 解析 (设备/浏览器/OS)
+│   ├── slug.ts           # nanoid slug generation
+│   ├── password.ts       # PBKDF2 password hashing/verification
+│   └── ua.ts             # User-Agent parsing (device/browser/OS)
 ├── middleware/
-│   └── auth.ts           # API Key 认证中间件
+│   └── auth.ts           # API key auth middleware
 └── routes/
-    ├── api.ts            # API 路由 (域名/链接/统计 CRUD)
-    └── redirect.ts       # 重定向 + 密码验证页面
+    ├── api.ts            # API routes with Zod validation (domains/links/stats)
+    └── redirect.ts       # Redirect handler + password page
 test/
-├── api.test.ts           # API + 重定向测试 (22 cases)
-├── password.test.ts      # 密码保护 + 过期 + 禁用测试 (6 cases)
-└── setup.ts              # 测试数据库初始化
+├── api.test.ts           # API + redirect tests (26 cases)
+├── password.test.ts      # Password, expiration, disable tests (6 cases)
+└── setup.ts              # Test database setup
 drizzle/
-└── 0000_*.sql            # D1 迁移文件
+└── 0000_*.sql            # D1 migration files
 ```
 
 ## License
